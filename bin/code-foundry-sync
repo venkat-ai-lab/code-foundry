@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# code-foundry-sync — pull the latest gstack from upstream into this fork and
+# re-apply the code-foundry branch on top, then rebuild and relink.
+#
+# Layout this expects:
+#   origin    = your fork (venkat-ai-lab/code-foundry)
+#   upstream  = garrytan/gstack, fetch only (push URL is "no-push")
+#   main      = clean mirror of upstream/main, never edited directly
+#   code-foundry = your changes, rebased onto main after every sync
+#
+# Nothing here pushes to upstream. On a rebase conflict the rebase is aborted,
+# the branch is left exactly as it was, and the script exits 2 so the install
+# keeps working until you resolve it by hand.
+#
+# Usage: bin/code-foundry-sync            (logs to ~/.gstack/code-foundry-sync.log)
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LOG="${GSTACK_HOME:-$HOME/.gstack}/code-foundry-sync.log"
+BRANCH="code-foundry"
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+cd "$ROOT" || exit 1
+mkdir -p "$(dirname "$LOG")"
+exec >>"$LOG" 2>&1
+echo "=== code-foundry-sync $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "working tree has uncommitted changes; commit or stash them first. Skipped."
+  exit 1
+fi
+
+START_BRANCH="$(git branch --show-current)"
+BEFORE="$(cat VERSION)"
+BEFORE_SHA="$(git rev-parse "$BRANCH")"
+
+git fetch upstream --quiet || { echo "fetch upstream failed"; exit 1; }
+
+git checkout -q main || exit 1
+if ! git merge --ff-only upstream/main; then
+  echo "main is not a clean mirror of upstream (fast-forward failed). Fix by hand."
+  git checkout -q "$START_BRANCH"; exit 1
+fi
+git push -q origin main || echo "warning: could not push main to origin (continuing)"
+
+git checkout -q "$BRANCH" || exit 1
+if ! git rebase -q main; then
+  echo "rebase of $BRANCH onto main hit a conflict. Aborting; branch left unchanged."
+  git rebase --abort
+  echo "resolve by hand: git rebase main   (then: bun run build && ./setup --no-prefix -q)"
+  exit 2
+fi
+git push -q --force-with-lease origin "$BRANCH" || echo "warning: could not push $BRANCH to origin (continuing)"
+
+AFTER="$(cat VERSION)"
+if [ "$(git rev-parse HEAD)" = "$BEFORE_SHA" ]; then
+  echo "already at $AFTER, nothing to rebuild"
+  exit 0
+fi
+
+bun install --silent || { echo "bun install failed"; exit 1; }
+bun run build >/dev/null || { echo "bun run build failed"; exit 1; }
+./setup --no-prefix -q || { echo "setup failed"; exit 1; }
+echo "synced $BEFORE -> $AFTER on $BRANCH"
