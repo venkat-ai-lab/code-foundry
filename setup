@@ -1560,6 +1560,11 @@ link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local linked=()
+  # skill_brand: the word users see in front of prefixed names and on
+  # gstack-upgrade (default gstack; a fork sets e.g. code-foundry). Install
+  # paths and bin/ names never change. Mirrored in bin/gstack-relink.
+  local brand
+  brand="$("$GSTACK_CONFIG" get skill_brand 2>/dev/null || true)"; brand="${brand:-gstack}"
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
@@ -1568,14 +1573,27 @@ link_claude_skill_dirs() {
       # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
       skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
       [ -z "$skill_name" ] && skill_name="$dir_name"
-      # Apply gstack- prefix unless --no-prefix or already prefixed
+      # Apply <brand>- prefix unless --no-prefix or already prefixed
+      _rename_copy=""
       if [ "$SKILL_PREFIX" -eq 1 ]; then
         case "$skill_name" in
           gstack-*) link_name="$skill_name" ;;
-          *)        link_name="gstack-$skill_name" ;;
+          *)        link_name="${brand}-$skill_name" ;;
         esac
       else
         link_name="$skill_name"
+      fi
+      # Rebranded: a gstack-* skill (gstack-upgrade) is served as <brand>-*
+      # from a rewritten copy, never a symlink, so Claude Code never sees the
+      # canonical name twice (#2511). The gstack-* host entry retires.
+      if [ "$brand" != "gstack" ]; then
+        case "$skill_name" in
+          gstack-*)
+            link_name="${brand}-${skill_name#gstack-}"; _rename_copy="$link_name"
+            if { [ -e "$skills_dir/$skill_name" ] || [ -L "$skills_dir/$skill_name" ]; } && _claude_entry_is_ours "$skills_dir/$skill_name" "$skill_dir/SKILL.md" "$gstack_dir"; then
+              if [ -f "$skills_dir/$skill_name/.gstack-owned" ]; then rm -rf "$skills_dir/$skill_name"; else _cleanup_weak_dir "$skills_dir/$skill_name" "$gstack_dir" "$skill_dir/SKILL.md" "$skill_name"; fi
+            fi ;;
+        esac
       fi
       target="$skills_dir/$link_name"
       # #2119: a destination that exists and is NOT ours is a user's skill that
@@ -1634,7 +1652,12 @@ link_claude_skill_dirs() {
           continue
         fi
       fi
-      _link_or_copy "$_skill_md_src" "$target/SKILL.md"
+      if [ -n "$_rename_copy" ]; then
+        rm -f "$target/SKILL.md"
+        sed "1,/^---\$/ s/^name:[[:space:]].*/name: $_rename_copy/" "$_skill_md_src" > "$target/SKILL.md"
+      else
+        _link_or_copy "$_skill_md_src" "$target/SKILL.md"
+      fi
       # Provenance marker (#2119) on every platform — path-independent proof
       # for Windows copies and for checkouts whose path carries no `gstack`
       # segment — but only for a directory we created or already owned: a
@@ -1705,11 +1728,21 @@ _install_alias_skill_md() {
 link_claude_root_skill_alias() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local target="$skills_dir/_gstack-command"
+  local brand alias_name="_gstack-command"
+  brand="$("$GSTACK_CONFIG" get skill_brand 2>/dev/null || true)"; brand="${brand:-gstack}"
+  if [ "$brand" != "gstack" ]; then
+    # Rebranded: the router answers to /<brand>; retire the generic alias.
+    alias_name="$brand"
+    local old="$skills_dir/_gstack-command"
+    if { [ -e "$old" ] || [ -L "$old" ]; } && _claude_entry_is_ours "$old" "$gstack_dir/SKILL.md" "$gstack_dir"; then
+      if [ -f "$old/.gstack-owned" ]; then rm -rf "$old"; else _cleanup_weak_dir "$old" "$gstack_dir"; fi
+    fi
+  fi
+  local target="$skills_dir/$alias_name"
 
   [ -f "$gstack_dir/SKILL.md" ] || return 0
-  _install_alias_skill_md "$gstack_dir/SKILL.md" "$target" "_gstack-command"
-  echo "  linked root skill alias: gstack"
+  _install_alias_skill_md "$gstack_dir/SKILL.md" "$target" "$alias_name"
+  echo "  linked root skill alias: $alias_name"
 }
 
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────

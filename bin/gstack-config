@@ -61,6 +61,10 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # ─── Skill naming ────────────────────────────────────────────────────
 # skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
 #                           # false = short names /qa, /ship
+# skill_brand: gstack        # the word in front of prefixed names, the router
+#                           # alias and gstack-upgrade (e.g. code-foundry →
+#                           # /code-foundry, /code-foundry-upgrade). Install
+#                           # paths and bin/ names stay gstack.
 #
 # ─── Writing style (V1) ──────────────────────────────────────────────
 # explain_level: default    # default = jargon-glossed, outcome-framed prose
@@ -155,6 +159,7 @@ lookup_default() {
     auto_upgrade) echo "false" ;;
     update_check) echo "true" ;;
     skill_prefix) echo "false" ;;
+    skill_brand) echo "gstack" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
@@ -471,7 +476,7 @@ case "${1:-}" in
       echo "${KEY}: ${SAFE_VALUE}" >> "$CONFIG_FILE"
     fi
     # Auto-relink skills when prefix setting changes (skip during setup to avoid recursive call)
-    if [ "$KEY" = "skill_prefix" ] && [ -z "${GSTACK_SETUP_RUNNING:-}" ]; then
+    if { [ "$KEY" = "skill_prefix" ] || [ "$KEY" = "skill_brand" ]; } && [ -z "${GSTACK_SETUP_RUNNING:-}" ]; then
       GSTACK_RELINK="$(dirname "$0")/gstack-relink"
       [ -x "$GSTACK_RELINK" ] && "$GSTACK_RELINK" || true
     fi
@@ -483,7 +488,7 @@ case "${1:-}" in
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix explain_level \
+               skill_prefix skill_brand explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
@@ -500,7 +505,7 @@ case "${1:-}" in
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix explain_level \
+               skill_prefix skill_brand explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do

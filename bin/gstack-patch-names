@@ -5,6 +5,7 @@ set -euo pipefail
 
 GSTACK_DIR="$1"
 DO_PREFIX="$2"
+BRAND="${3:-gstack}"   # skill_brand: the word in front of prefixed names
 
 # Normalize prefix arg
 case "$DO_PREFIX" in true|1) DO_PREFIX=1 ;; *) DO_PREFIX=0 ;; esac
@@ -18,12 +19,12 @@ for skill_dir in "$GSTACK_DIR"/*/; do
   [ -z "$cur" ] && continue
   [ "$cur" = "gstack" ] && continue  # never prefix root skill
   if [ "$DO_PREFIX" -eq 1 ]; then
-    case "$cur" in gstack-*) continue ;; esac
-    new="gstack-$cur"
+    case "$cur" in gstack-*|"${BRAND}"-*) continue ;; esac
+    new="${BRAND}-$cur"
   else
-    case "$cur" in gstack-*) ;; *) continue ;; esac
+    case "$cur" in gstack-*|"${BRAND}"-*) ;; *) continue ;; esac
     [ "$dir_name" = "$cur" ] && continue  # inherently prefixed (gstack-upgrade)
-    new="${cur#gstack-}"
+    new="${cur#gstack-}"; new="${new#"${BRAND}"-}"
   fi
   tmp="$(mktemp "${skill_dir}/SKILL.md.XXXXXX")"
   sed "1,/^---$/s/^name:[[:space:]]*${cur}/name: ${new}/" "$skill_dir/SKILL.md" > "$tmp" && mv "$tmp" "$skill_dir/SKILL.md"

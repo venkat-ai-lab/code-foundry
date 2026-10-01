@@ -12,6 +12,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
+# skill_brand: the word users see in front of prefixed names, on the router
+# alias, and on gstack-upgrade. Defaults to gstack; a fork sets e.g.
+# code-foundry. Install paths and bin/ names never change.
+BRAND="$("$GSTACK_CONFIG" get skill_brand 2>/dev/null || true)"
+BRAND="${BRAND:-gstack}"
 
 # Detect install dir
 INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
@@ -257,7 +262,13 @@ _dir_only_links() {
 }
 
 _link_root_skill_alias() {
-  local target="$SKILLS_DIR/_gstack-command"
+  local alias_name="_gstack-command"
+  if [ "$BRAND" != "gstack" ]; then
+    # Rebranded: the router answers to /<brand>; retire the generic alias.
+    alias_name="$BRAND"
+    _cleanup_skill_entry "$SKILLS_DIR/_gstack-command" ""
+  fi
+  local target="$SKILLS_DIR/$alias_name"
 
   [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
   # Same ownership gate as every other entry (#2119): a user's own
@@ -276,7 +287,7 @@ _link_root_skill_alias() {
   # a fresh copy — remove any prior symlink first so the redirect can never
   # write through it into the generated source.
   rm -f "$target/SKILL.md"
-  sed "1,/^---\$/ s/^name:[[:space:]].*/name: _gstack-command/" "$INSTALL_DIR/SKILL.md" > "$target/SKILL.md"
+  sed "1,/^---\$/ s/^name:[[:space:]].*/name: $alias_name/" "$INSTALL_DIR/SKILL.md" > "$target/SKILL.md"
   # The rewritten copy is a real file on every platform: the marker, not the
   # banner, is what proves it ours on the next run — written only for a
   # directory we created (or already marked), never one we merely wrote into.
@@ -301,11 +312,12 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
 
+  rename_copy=""
   if [ "$PREFIX" = "true" ]; then
     # Don't double-prefix directories already named gstack-*
     case "$skill" in
       gstack-*) link_name="$skill" ;;
-      *)        link_name="gstack-$skill" ;;
+      *)        link_name="${BRAND}-$skill" ;;
     esac
     # Remove old flat entry if it exists (and isn't the same as the new link)
     [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
@@ -314,7 +326,19 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
     case "$skill" in
       gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill" ;;
+      *)        _cleanup_skill_entry "$SKILLS_DIR/${BRAND}-$skill" "$skill"
+                [ "$BRAND" != "gstack" ] && _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill" ;;
+    esac
+  fi
+  # Rebranded (skill_brand != gstack): a dir named gstack-* (gstack-upgrade) is
+  # served as <brand>-* from a rewritten copy, never a symlink, so Claude Code
+  # never sees the canonical name twice (#2511). The gstack-* entry retires.
+  if [ "$BRAND" != "gstack" ]; then
+    case "$skill" in
+      gstack-*)
+        link_name="${BRAND}-${skill#gstack-}"
+        rename_copy="$link_name"
+        _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill" ;;
     esac
   fi
   target="$SKILLS_DIR/$link_name"
@@ -348,7 +372,12 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       continue
     fi
   fi
-  ln -snf "$skill_md_src" "$target/SKILL.md"
+  if [ -n "$rename_copy" ]; then
+    rm -f "$target/SKILL.md"
+    sed "1,/^---\$/ s/^name:[[:space:]].*/name: $rename_copy/" "$skill_md_src" > "$target/SKILL.md"
+  else
+    ln -snf "$skill_md_src" "$target/SKILL.md"
+  fi
   # Provenance marker on every platform (path-independent proof; on Windows
   # without Developer Mode `ln -snf` degrades to a copy and this is the only
   # proof), but only for a directory we created or already owned.
@@ -364,11 +393,11 @@ done
 # for every brain-aware skill (#2738). gstack-patch-names takes an arbitrary
 # root, skips already-prefixed names (idempotent), and the render dir is
 # user-owned and untracked, so patching it never dirties a checkout.
-"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
-[ -d "$RENDER_DIR" ] && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_DIR" "$PREFIX"
+"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX" "$BRAND"
+[ -d "$RENDER_DIR" ] && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_DIR" "$PREFIX" "$BRAND"
 
 if [ "$PREFIX" = "true" ]; then
-  echo "Relinked $SKILL_COUNT skills as gstack-*"
+  echo "Relinked $SKILL_COUNT skills as ${BRAND}-*"
 else
   echo "Relinked $SKILL_COUNT skills as flat names"
 fi

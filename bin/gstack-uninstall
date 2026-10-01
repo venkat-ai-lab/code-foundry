@@ -196,6 +196,10 @@ CLAUDE_SKILLS="$HOME/.claude/skills"
 # creates (setup: link_claude_root_skill_alias + the connect-chrome call
 # sites) — keep in sync with setup if an alias is added or renamed there.
 _INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
+# skill_brand (bin/gstack-config): a rebranded install also owns /<brand>
+# and <brand>-<skill> entries. Default gstack adds nothing new.
+_BRAND="$("$(dirname "$0")/gstack-config" get skill_brand 2>/dev/null || true)"; _BRAND="${_BRAND:-gstack}"
+[ "$_BRAND" != "gstack" ] && _INVENTORY="$_INVENTORY$_BRAND ${_BRAND}-connect-chrome "
 if [ -d "$GSTACK_DIR" ]; then
   for _SRC in "$GSTACK_DIR"/*/; do
     [ -f "$_SRC/SKILL.md" ] || continue
@@ -203,7 +207,7 @@ if [ -d "$GSTACK_DIR" ]; then
     _FM_NAME=$(grep -m1 '^name:' "$_SRC/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
     for _N in "$_SRC_NAME" "$_FM_NAME"; do
       [ -n "$_N" ] || continue
-      case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N " ;; esac
+      case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N ${_BRAND}-$_N ${_BRAND}-${_N#gstack-} " ;; esac
     done
   done
 fi
